@@ -1,0 +1,121 @@
+# Analysis of personal activity data
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+library(parallel, quietly=T)
+library(doParallel, quietly=T)
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+```
+
+## Summary
+In this study, we want to use acceleration and rotation data collected from
+personal fitness devices like Jawbone Up, Nike FuelBand, and Fitbit to predict
+whether someone is doing an exercise correctly.
+Six people performed a unilaterl dumbbell biceps curl while supervised by an
+experienced weight lifter.
+The exercises were performed both correctly and with several different
+common errors and classified into A, B, C, D, or E.
+Class A corresponds to correct execution, class B corresponds to to throwing
+elbows to the front, class C corresponds to lifting the dumbbell only halfway,
+class D corresponds to lowering the dumbbell only halfway, and class E
+corresponds to throwing the hips to the front.
+
+We split the training set (containing 19622 observations of 160 variables) into
+a two subsets in order to estimate the out-of-sample error: a training set with
+13737 observations and a validation set with 5885 observations.
+Some predictors were removed before fitting a model because they contained
+mostly NAs or blanks.
+
+We fit a model using random forests with 3 folds and 3 resampling iterations.
+The out-of-sample error was estimated to be 0.009 using the validation dataset.
+Using the model on the test set, we were able to achieve 100% accuracy on
+for the 20 cases.
+
+## Data processing
+
+First, load relevant libraries for the analysis.
+```{r}
+library(caret)
+library(dplyr)
+library(tidyr)
+```
+
+Load the training and test datasets.
+
+```{r}
+training <- read.csv("training.csv", header=T)
+testing <- read.csv("testing.csv", header=T)
+```
+
+There are several variables in the training dataset which contain a lot of NA
+entries (19216 to be exact).
+We will eliminate these variables as they will not make useful predictors.
+We will also remove variables which contain a lot of blank entries (after
+converting them to NA).
+
+```{r}
+training[training==""] <- NA
+testing[testing==""] <- NA
+colNAs <- colSums(is.na(training))
+unique(colNAs)
+training <- training[,colNAs != 19216]
+testing <- testing[,colNAs != 19216]
+```
+
+## Fitting a model
+
+To estimate the out-of-sample error, we will first need to split our training
+dataset up into training and validation datasets.
+
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=F)
+train_set <- training[inTrain,]
+valid_set <- training[-inTrain,]
+```
+
+Then, we build a random forest model using the training dataset.
+It is important to not use the first seven columns in the training, as they
+provide ID numbers and other irrelevant information.
+Mostly, it's important to not use the X column as that is an ID number which
+is strongly correlated with the classe variable (the ID number increases
+monotonically and the classe variable is ordered alphabetically).
+
+```{r, cache=TRUE}
+modelFit <- train(classe ~ ., data=train_set[,-1:-7], method="rf",
+                  trControl = trainControl(method="cv", number=3, repeats=3))
+modelFit
+```
+
+## Evaluating the model
+Now, we want to evaluate the model's out-of-sample error using the validation
+dataset.
+We use the model to predict the classe variable for the validation dataset
+and compare the prediction to the known result.
+
+```{r}
+valid_pred <- predict(modelFit,valid_set[,-1:-7])
+table(valid_pred,valid_set$classe)
+```
+
+For the validation dataset with `r length(valid_pred)`, only 
+`r sum(valid_pred!=valid_set$classe)` predictions were wrong,
+which gives an out-of-sample error of
+$`r 1 - sum(valid_pred==valid_set$classe)/length(valid_pred)`$.
+
+## Prediction on the testing dataset
+
+Now, we use the model to make predictions for the test dataset.
+
+```{r}
+test_pred <- predict(modelFit,testing[,-1:-7])
+test_pred
+```
+
+These results were all verified to be correct after submitting on the course
+website.
+
+```{r, include=FALSE}
+## Stop parallel processing.
+stopCluster(cluster)
+```
